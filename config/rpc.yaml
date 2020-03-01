@@ -1,0 +1,6 @@
+stage: dev
+log:
+  dir: /Users/hnf/workspace/pyrpc/logs
+  common-log: rpc.log
+zookeeper:
+  host: 127.0.0.1:2181

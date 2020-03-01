@@ -1,0 +1,6 @@
+syntax: glob
+.idea
+confing/*.yaml
+.git
+*.pid
+logs
