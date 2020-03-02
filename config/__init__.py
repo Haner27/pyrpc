@@ -15,6 +15,7 @@ class Config:
 
         # 加载yaml里的配置
         self.yaml_obj = self.load_conf_from_yaml()
+        self.app_name = self.yaml_obj.get('name')
         self.stage = self.yaml_obj.get('stage')
         self.log = self.LogConf(self.yaml_obj.get('log'))
         self.zookeeper = self.ZookeeperConf(self.yaml_obj.get('zookeeper'))
@@ -34,7 +35,7 @@ class Config:
     class ZookeeperConf:
         # zookeeper 配置
         def __init__(self, zookeeper_conf):
-            self.url = zookeeper_conf['host']
+            self.hosts = zookeeper_conf['hosts']
 
     class PathConf:
         # 路径相关配置

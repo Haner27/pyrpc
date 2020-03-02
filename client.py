@@ -1,70 +1,102 @@
 from contextlib import contextmanager
+from functools import partial
 
 from thrift import Thrift
 from thrift.protocol.TMultiplexedProtocol import TMultiplexedProtocol
 from thrift.transport import TSocket, TTransport
 from thrift.protocol import TBinaryProtocol
 
-# 连接Socket
-socket = TSocket.TSocket('localhost', 9000)
+from config import conf
+from utils.zookeeper import ZkForClient
 
 
-@contextmanager
-def connect_rpc(socket, service_name, service_module):
-    transport = None
-    try:
-        # 获取Transport
-        transport = TTransport.TBufferedTransport(socket)
-        # 获取TBinaryProtocol
-        protocol = TBinaryProtocol.TBinaryProtocol(transport)
-        service_protocol = TMultiplexedProtocol(protocol, service_name)
+class RPCClient:
+    def __init__(self, zookeeper_hosts):
+        self.__zk_for_client = ZkForClient(conf.app_name, zookeeper_hosts)
+        self.__service_bind_map = {}
 
-        # 获取该service的客户端对象
-        client = service_module.Client(service_protocol)
+    def bind(self, service_name, service_module):
+        self.__service_bind_map[service_name] = service_module
 
-        # 连接通道transport
-        transport.open()
-        yield client
+    @contextmanager
+    def load_service_client(self, service_name):
+        if service_name not in self.__service_bind_map:
+            raise Exception('service {} must bind service_module thrift generated.'.format(service_name))
 
-    except Thrift.TException as ex:
-        print('%s' % (ex.message))
+        service_module = self.__service_bind_map[service_name]
 
-    finally:
-        if transport:
-            # 关闭通道transport
-            transport.close()
+        # 获取可用的服务
+        host, port = self.__zk_for_client.load_available_service(service_name)
+        print('we load service {} from {}:{}'.format(service_name, host, port))
+        socket = TSocket.TSocket(host, port)
+
+        transport = None
+        try:
+            # 获取Transport
+            transport = TTransport.TBufferedTransport(socket)
+            # 获取TBinaryProtocol
+            protocol = TBinaryProtocol.TBinaryProtocol(transport)
+            service_protocol = TMultiplexedProtocol(protocol, service_name)
+
+            # 获取该service的客户端对象
+            client = service_module.Client(service_protocol)
+
+            # 连接通道transport
+            transport.open()
+            yield client
+
+        except Thrift.TException as ex:
+            print('%s' % (ex.message))
+
+        finally:
+            if transport:
+                # 关闭通道transport
+                transport.close()
+
+    def close(self):
+        self.__zk_for_client.close()
+
+    def __getattr__(self, service_name):
+        return self.load_service_client(service_name)
 
 
 if __name__ == '__main__':
     # 使用样例：
+
     # # 导入thrift生成对应语言的service以及数据对象结构
+    cli = RPCClient(conf.zookeeper.hosts)
     from thrifts.user_service import UserService
+    cli.bind('User', UserService)
 
-    service_name = 'User'
-    with connect_rpc(socket, service_name, UserService) as cli:
-        # 调用某个没有返回值的函数
-
-        hnf = cli.CreateUser(UserService.User(id=1, name='hnf', desc='i am hnf'))
+    with cli.User as user_service:
+        hnf = user_service.CreateUser(UserService.User(id=1, name='hnf', desc='i am hnf'))
         print(hnf.id, hnf.name, hnf.gender, hnf.desc)
-        lx = cli.CreateUser(UserService.User(id=2, name='lx', gender='female', desc='i am lx'))
+        lx = user_service.CreateUser(UserService.User(id=2, name='lx', gender='female', desc='i am lx'))
         print(hnf.id, hnf.name, hnf.gender, hnf.desc)
-        fgy = cli.CreateUser(UserService.User(id=3, name='fgy'))
+        fgy = user_service.CreateUser(UserService.User(id=3, name='fgy'))
         print(hnf.id, hnf.name, hnf.gender, hnf.desc)
         print('\n')
 
-        users = cli.GetUsers()
+        users = user_service.GetUsers()
         for u in users:
             print(u.id, u.name, u.gender, u.desc)
 
-        r = cli.Ping()
+        r = user_service.Ping()
         print(r.code)
 
-        print(cli.DeleteUserById(user_id=3))
+        print(user_service.DeleteUserById(user_id=3))
 
         print('\n')
-        users = cli.GetUsers()
+        users = user_service.GetUsers()
         for u in users:
             print(u.id, u.name, u.gender, u.desc)
 
-        lx = cli.GetUserById(user_id=2)
-        print(lx.id, lx.name, lx.gender, lx.desc)
+        lx = user_service.GetUserById(user_id=9)
+        if lx:
+            print(lx.id, lx.name, lx.gender, lx.desc)
+
+    cli.close()
+
+
+
+
